@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#03050a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Sol Atlas">
+<meta name="description" content="太陽と8つの惑星、月を、いまの本当の配置で。">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<title>Sol Atlas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  color-scheme: dark;
+  --void:#03050a;
+  --glass:rgba(9,13,21,.62);
+  --glass-hi:rgba(22,30,46,.72);
+  --line:rgba(168,188,228,.14);
+  --line-hi:rgba(168,188,228,.32);
+  --text:#e8ecf3;
+  --muted:#8e98ab;
+  --faint:#5d6679;
+  --sol:#ffbf73;
+  --sol-dim:rgba(255,191,115,.16);
+  --display:"Shippori Mincho","Hiragino Mincho ProN","Yu Mincho",serif;
+  --ui:"Zen Kaku Gothic New","Hiragino Sans","Yu Gothic",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+  --gut:16px;
+}
+[hidden]{display:none!important}
+html,body{height:100%;background:var(--void);color:var(--text);overflow:hidden}
+body{font-family:var(--ui);font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased}
+#scene{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;outline:none}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+button:focus-visible,input:focus-visible,a:focus-visible{outline:1px solid var(--sol);outline-offset:2px}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+small{font-size:.72em;color:var(--muted);margin-left:.2em;font-family:var(--ui);letter-spacing:0}
+.glass{background:var(--glass);border:1px solid var(--line);backdrop-filter:blur(18px) saturate(1.2);-webkit-backdrop-filter:blur(18px) saturate(1.2)}
+
+/* top bar */
+.top{position:fixed;left:0;right:0;top:0;display:flex;justify-content:space-between;align-items:flex-start;gap:12px;
+  padding:calc(env(safe-area-inset-top,0px) + 18px) 22px 0;pointer-events:none;z-index:5}
+.top>*{pointer-events:auto}
+.brand{display:flex;flex-direction:column;gap:2px}
+.brand b{font-family:var(--mono);font-weight:500;letter-spacing:.42em;font-size:12px;color:var(--text)}
+.brand span{font-size:11px;color:var(--muted);letter-spacing:.08em}
+.top-right{display:flex;align-items:center;gap:10px}
+.pill{display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 12px;border-radius:15px;font-size:12px;color:var(--muted)}
+.pill:hover{color:var(--text);border-color:var(--line-hi)}
+#live-dot{width:7px;height:7px;border-radius:50%;background:var(--faint)}
+#live-dot[data-live="true"]{background:#ff5a4f;box-shadow:0 0 0 0 rgba(255,90,79,.6);animation:pulse 2s infinite}
+@keyframes pulse{70%{box-shadow:0 0 0 7px rgba(255,90,79,0)}100%{box-shadow:0 0 0 0 rgba(255,90,79,0)}}
+
+/* focus rail */
+.rail{position:fixed;left:22px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:0;z-index:5;max-height:calc(100dvh - 220px);overflow:auto;scrollbar-width:none}
+.rail::-webkit-scrollbar{display:none}
+.rail .cap{font-size:10px;letter-spacing:.24em;color:var(--faint);text-transform:uppercase;margin:12px 0 4px;font-family:var(--mono)}
+.rail .cap:first-child{margin-top:0}
+.rail button{display:flex;align-items:center;gap:12px;padding:5px 12px 5px 0;color:var(--muted);text-align:left;font-size:14px;flex:none}
+.rail button .k{font-family:var(--mono);font-size:10px;width:18px;height:18px;display:grid;place-items:center;border:1px solid var(--line);border-radius:4px;color:var(--faint)}
+.rail button .tick{width:14px;height:1px;background:var(--line-hi);transition:width .35s ease,background .35s}
+.rail button:hover{color:var(--text)}
+.rail button[aria-pressed="true"]{color:var(--text)}
+.rail button[aria-pressed="true"] .tick{width:30px;background:var(--sol)}
+
+/* info panel */
+#panel{position:fixed;right:18px;top:calc(env(safe-area-inset-top,0px) + 64px);bottom:128px;width:360px;border-radius:14px;z-index:5;display:flex;flex-direction:column;overflow:hidden}
+.panel-scroll{overflow:auto;padding:22px 22px 18px;display:flex;flex-direction:column;gap:22px;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+.p-head{display:flex;flex-direction:column;gap:4px}
+#p-kicker{font-family:var(--mono);font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--sol)}
+.name-row{display:flex;align-items:baseline;gap:12px}
+#p-name{font-family:var(--display);font-weight:700;font-size:44px;line-height:1.05;letter-spacing:.02em;margin:0;text-wrap:balance}
+#p-latin{font-family:var(--display);font-size:15px;color:var(--muted)}
+#p-lede{margin:6px 0 0;color:#c3cad8;font-size:13.5px;line-height:1.75}
+.sec-h{font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--faint);font-family:var(--mono);margin:0 0 8px;display:flex;justify-content:space-between}
+dl{margin:0}
+#p-live{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.ro{background:rgba(6,9,15,.72);padding:10px 12px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.ro dt{font-size:11px;color:var(--muted)}
+.ro dd{margin:0;font-size:15px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#p-facts .fr{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid var(--line)}
+#p-facts .fr:last-child{border-bottom:0}
+#p-facts dt{color:var(--muted);font-size:12.5px}
+#p-facts dd{margin:0;font-size:13px;text-align:right}
+#p-events{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.event{width:100%;display:grid;grid-template-columns:1fr auto;grid-template-areas:"l w" "d d";gap:2px 10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;text-align:left;transition:border-color .2s,background .2s}
+.event:hover{border-color:var(--sol);background:var(--sol-dim)}
+.ev-label{grid-area:l;font-size:12px;color:var(--muted)}
+.ev-what{grid-area:w;font-size:12px;color:var(--sol)}
+.ev-date{grid-area:d;font-size:13.5px}
+.foot{font-size:11px;color:var(--faint);line-height:1.6}
+.foot a{color:var(--muted)}
+.grip{display:none}
+#p-live.list{grid-template-columns:1fr 1fr}
+.ro.go{text-align:left;cursor:pointer;transition:background .2s}
+.ro.go:hover{background:rgba(255,191,115,.08)}
+.ro .sub{display:block;margin:2px 0 0;font-size:10.5px;color:var(--faint)}
+.zlink{display:block;padding:11px 14px;border:1px solid var(--line-hi);border-radius:10px;color:var(--text);text-decoration:none;font-size:13px;transition:border-color .2s,background .2s}
+.zlink:hover{border-color:var(--sol);background:var(--sol-dim)}
+
+/* time console */
+.console{box-sizing:border-box;position:fixed;left:50%;transform:translateX(-50%);white-space:nowrap;bottom:calc(env(safe-area-inset-bottom,0px) + 20px);z-index:6;border-radius:16px;padding:12px 14px;display:flex;align-items:center;gap:18px;max-width:calc(100% - 32px)}
+.clock{display:flex;flex-direction:column;flex:none}
+#clock-jst{font-size:19px;color:var(--text);white-space:nowrap}
+#clock-jst::after{content:" JST";font-size:11px;color:var(--muted)}
+#clock-utc{font-size:11px;color:var(--faint);white-space:nowrap}
+.ctrls{display:flex;align-items:center;gap:4px;flex-wrap:nowrap}
+.ctrls button{height:32px;padding:0 10px;border-radius:8px;font-size:12px;color:var(--muted);border:1px solid transparent;white-space:nowrap}
+.ctrls button:hover{color:var(--text);background:rgba(255,255,255,.04)}
+.ctrls button[aria-pressed="true"]{color:var(--void);background:var(--sol);font-weight:500}
+.ctrls .ico{width:32px;padding:0;display:grid;place-items:center}
+.ctrls .ico svg{width:14px;height:14px}
+.ctrls #now{border-color:var(--line-hi);color:var(--text)}
+.sep{width:1px;height:22px;background:var(--line)}
+#when{height:32px;border-radius:8px;border:1px solid var(--line);background:transparent;color:var(--muted);font-family:var(--mono);font-size:11.5px;padding:0 8px;color-scheme:dark}
+#rate-label{display:none}
+
+/* labels over bodies */
+#labels{position:fixed;inset:0;pointer-events:none;z-index:4}
+.label{position:absolute;left:0;top:0;pointer-events:auto;font-size:11.5px;letter-spacing:.14em;color:var(--muted);padding:3px 8px;border-radius:10px;white-space:nowrap;display:flex;flex-direction:column;align-items:center}
+.label i{display:block;width:1px;height:10px;background:var(--line-hi);margin:0 auto 3px}
+.label.dot i{width:5px;height:5px;border-radius:50%;background:#d9e1ef;box-shadow:0 0 6px rgba(217,225,239,.7);margin-bottom:5px}
+.label.dim{opacity:.62;font-size:10.5px}
+.label:hover{color:var(--text);opacity:1}
+.hint{position:fixed;left:22px;top:calc(env(safe-area-inset-top,0px) + 70px);margin:0;font-size:11px;color:var(--faint);z-index:4;max-width:260px}
+
+/* loading */
+#loading{position:fixed;inset:0;z-index:20;background:var(--void);display:grid;place-items:center;transition:opacity 1.4s ease .2s}
+#loading[data-done="true"]{opacity:0;pointer-events:none}
+.ld{display:flex;flex-direction:column;align-items:center;gap:14px;width:min(280px,70vw)}
+.ld b{font-family:var(--mono);font-weight:500;letter-spacing:.5em;font-size:13px;padding-left:.5em}
+.ld .track{width:100%;height:1px;background:var(--line)}
+#loadbar{height:1px;background:var(--sol);transform-origin:left;transform:scaleX(0);transition:transform .3s}
+.ld span{font-size:11px;color:var(--faint)}
+
+@media (max-width: 1320px){ #panel{bottom:112px} .console{left:22px;transform:none} .hint{display:none} }
+@media (max-width: 900px){
+  :root{--sab:env(safe-area-inset-bottom,0px)}
+  .top{padding-left:16px;padding-right:16px;padding-top:calc(env(safe-area-inset-top,0px) + 12px)}
+  .brand span{display:none}
+  .pill{height:28px;padding:0 10px;font-size:11px}
+  .rail{top:calc(env(safe-area-inset-top,0px) + 50px);left:0;right:0;transform:none;flex-direction:row;gap:4px;max-height:none;overflow-x:auto;padding:0 16px 4px;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity}
+  .rail .cap{display:none}
+  .rail button{padding:6px 12px;border-radius:15px;font-size:13px;gap:0;border:1px solid transparent;background:rgba(9,13,21,.5);scroll-snap-align:center}
+  .rail button .k,.rail button .tick{display:none}
+  .rail button[aria-pressed="true"]{background:var(--glass-hi);border-color:var(--sol);color:var(--text)}
+  #panel{left:0;right:0;width:auto;top:auto;bottom:0;height:88dvh;border-radius:18px 18px 0 0;border-bottom:0;transform:translateY(calc(88dvh - 64px - var(--sab)));will-change:transform;z-index:8}
+  #panel.anim{transition:transform .42s cubic-bezier(.2,.8,.2,1)}
+  .grip{display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px 18px 10px;flex:none;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none}
+  .grip i{width:38px;height:4px;border-radius:2px;background:var(--line-hi)}
+  #peek{display:flex;align-items:baseline;gap:10px;min-height:28px;width:100%;justify-content:center}
+  #peek b{font-family:var(--display);font-size:20px;font-weight:700}
+  #peek span{font-size:11.5px;color:var(--muted)}
+  .panel-scroll{flex:1 1 auto;padding:6px 18px calc(24px + var(--sab));overscroll-behavior:contain}
+  #panel .p-head #p-name{font-size:30px}
+  .console{left:12px;right:12px;width:auto;transform:none;bottom:calc(var(--sab) + 72px);flex-direction:column;align-items:stretch;gap:6px;padding:8px 10px;max-width:none}
+  .clock{flex-direction:row;align-items:baseline;gap:10px}
+  #clock-jst{font-size:15px}
+  .ctrls{justify-content:space-between}
+  .ctrls button{padding:0 6px;height:30px;font-size:11.5px}
+  .ctrls [data-rate="1"],#when,.sep,.hint{display:none}
+}
+@media (prefers-reduced-motion: reduce){ *{animation:none!important;transition:none!important} }
+</style>
+</head>
+<body>
+
+
+<canvas id="scene" tabindex="0" aria-label="3D view of the Solar System"></canvas>
+<div id="labels"></div>
+
+<header class="top">
+  <div class="brand"><b>SOL ATLAS</b><span data-t="app">太陽系をいまの配置で</span></div>
+  <div class="top-right">
+    <span class="pill glass" title="HYG v4.1"><span id="live-dot"></span><span class="num" id="star-count">—</span> <span data-t="stars">恒星</span> · <span class="num" id="res">2K</span></span>
+    <button class="pill glass" id="lang" type="button">EN</button>
+  </div>
+</header>
+
+<nav class="rail" id="rail" aria-label="View"></nav>
+
+<aside id="panel" class="glass" data-state="peek">
+  <div class="grip" id="grip" role="button" tabindex="0" aria-expanded="false" aria-controls="panel-body"><i></i><div id="peek"></div><span id="p-name-m" hidden></span></div>
+  <div class="panel-scroll" id="panel-body">
+    <div class="p-head">
+      <span id="p-kicker"></span>
+      <div class="name-row"><h1 id="p-name">地球</h1><span id="p-latin"></span></div>
+      <p id="p-lede"></p>
+    </div>
+    <section><h2 class="sec-h"><span id="live-h">いまの宇宙</span><span>SIM</span></h2><dl id="p-live"></dl></section>
+    <section><h2 class="sec-h"><span data-t="upcoming">次に起きること</span><span data-t="jumpHint">押すとその時刻へ移動</span></h2><ul id="p-events"></ul></section>
+    <section><h2 class="sec-h"><span data-t="facts">基本データ</span></h2><dl id="p-facts"></dl></section>
+    <a id="p-zenith" class="zlink" href="https://ise-kk.github.io/zenith/" target="_blank" rel="noopener" hidden></a>
+    <div class="foot">
+      <div id="p-source"></div>
+      <div data-t="texNote"></div>
+      <div>Ephemeris: Astronomy Engine (MIT) · Stars: HYG v4.1 (CC BY-SA 4.0) · Textures: <a href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener">Solar System Scope</a> (CC BY 4.0; NASA MESSENGER, Viking, Cassini, Hubble data), NASA LRO/LROC · Planetary data: NASA NSSDCA</div>
+    </div>
+  </div>
+</aside>
+
+<div class="console glass" role="group" aria-label="Time">
+  <div class="clock"><span class="num" id="clock-jst">—</span><span class="num" id="clock-utc">—</span></div>
+  <div class="ctrls">
+    <button type="button" id="now" data-t="now">現在</button>
+    <span class="sep"></span>
+    <button type="button" class="ico" id="reverse" aria-pressed="false" aria-label="Reverse"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 3 1 8l7 5V3Zm7 0L8 8l7 5V3Z"/></svg></button>
+    <button type="button" class="ico" id="pause" aria-pressed="false" aria-label="Pause"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 3h3v10H4zM9 3h3v10H9z"/></svg></button>
+    <button type="button" data-rate="0" data-t="rate0">実時間</button>
+    <button type="button" data-rate="1" data-t="rate1">1分/秒</button>
+    <button type="button" data-rate="2" data-t="rate2">1時間/秒</button>
+    <button type="button" data-rate="3" data-t="rate3">1日/秒</button>
+    <button type="button" data-rate="4" data-t="rate4">1週/秒</button>
+    <span class="sep"></span>
+    <input type="datetime-local" id="when" aria-label="Date and time">
+    <span id="rate-label"></span>
+  </div>
+</div>
+<p class="hint" data-t="hint">ドラッグで回転 · ホイール/ピンチで拡大 · 天体をクリック</p>
+
+<div id="loading"><div class="ld"><b>SOL ATLAS</b><div class="track"><div id="loadbar"></div></div><span data-t="loading">星表と地表データを読み込み中</span></div></div>
+
+<script src="app.js"></script>
+
+</body>
+</html>
