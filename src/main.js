@@ -35,7 +35,7 @@ const ALL = ['sun', 'mercury', 'venus', 'earth', 'moon', 'mars', 'jupiter', 'sat
 const canvas = document.getElementById('scene');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, logarithmicDepthBuffer: true, powerPreference: 'high-performance' });
 const isMobile = matchMedia('(pointer: coarse)').matches || innerWidth < 720;
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(devicePixelRatio, isMobile ? 1.5 : 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.toneMapping = THREE.AgXToneMapping;
 renderer.toneMappingExposure = 1.0;
@@ -55,9 +55,10 @@ controls.rotateSpeed = 0.5;
 controls.zoomSpeed = 0.9;
 controls.enablePan = false;
 
-const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, samples: 4 }));
+const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, samples: isMobile ? 2 : 4 }));
 composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.6, 0.55, 2.2);
+if (isMobile) { const bs = bloom.setSize.bind(bloom); bloom.setSize = (w, h) => bs(Math.round(w / 2), Math.round(h / 2)); }  // glow at half resolution on phones
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
 
@@ -122,19 +123,20 @@ const starMat = new THREE.ShaderMaterial({
   transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
 });
 async function loadStars() {
-  const b64 = (ASSET.stars || (await (await fetch('stars.txt')).text())).trim();
-  const bin = atob(b64); const u8 = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
-  const f = new Float32Array(u8.buffer);
-  const n = f.length / 4;
+  // stars.bin: 6 bytes per star (little endian) — RA u16 (360°/65536), Dec i16 (90°/32767), mag u8 ((m+2)·25), B−V u8 ((bv+0.5)·80).
+  // Rounding stays below 10″ and 0.02 mag — far under a pixel.
+  const dv = new DataView(await (await fetch('stars.bin')).arrayBuffer());
+  const n = dv.byteLength / 6;
+  const star = (i) => [dv.getUint16(i * 6, true) / 65536 * 360, dv.getInt16(i * 6 + 2, true) / 32767 * 90, dv.getUint8(i * 6 + 4) / 25 - 2, dv.getUint8(i * 6 + 5) / 80 - 0.5];
   const pos = new Float32Array(n * 3), mag = new Float32Array(n), col = new Float32Array(n * 3);
   const r = SKY_R * 0.9;
   for (let i = 0; i < n; i++) {
-    const ra = f[i * 4] * Math.PI / 180, dec = f[i * 4 + 1] * Math.PI / 180;
+    const [raD, decD, m, bv] = star(i);
+    const ra = raD * Math.PI / 180, dec = decD * Math.PI / 180;
     const v = eqjToScene(Math.cos(dec) * Math.cos(ra), Math.cos(dec) * Math.sin(ra), Math.sin(dec));
     pos.set([v[0] * r, v[1] * r, v[2] * r], i * 3);
-    mag[i] = f[i * 4 + 2] < -5 ? 99 : f[i * 4 + 2];  // HYG row 0 is the Sun itself
-    col.set(bvToRgb(f[i * 4 + 3]), i * 3);
+    mag[i] = m;
+    col.set(bvToRgb(bv), i * 3);
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
@@ -773,23 +775,78 @@ function updateClock() {
 }
 
 // ---------- resolution upgrades ----------
+// Replaced textures are freed from GPU memory. On phones only the planet in view keeps its maps.
+function swapTex(u, t) { const old = u.value; u.value = t; if (old && old !== t) old.dispose(); }
 const resNow = { earth: 2, moon: 2 };
-const loading = new Set();
-async function loadPlanet(k, size) {
+const pending = new Map();
+const wantPlanet = (k) => !isMobile || focus === k;
+function loadPlanet(k, size) {
   const id = k + size;
-  if (loading.has(id)) return; loading.add(id);
-  const t = await tex(`tex/planets/${k}_${size}k.jpg`, true, false);
-  if (t && (resNow[k] || 0) < size) {
-    planets[k].u.uMap.value = t; resNow[k] = size;
+  if (pending.has(id)) return pending.get(id);
+  const pr = tex(`tex/planets/${k}_${size}k.jpg`, true, false).then(t => {
+    pending.delete(id);
+    if (!t) return;
+    if (!wantPlanet(k) || (resNow[k] || 0) >= size) { t.dispose(); return; }
+    swapTex(planets[k].u.uMap, t); resNow[k] = size;
     planets[k].mesh.visible = true; if (planets[k].ring && ringTex.value) planets[k].ring.visible = true;
     if (focus === k) $('res').textContent = size + 'K';
-  }
+  });
+  pending.set(id, pr);
+  return pr;
 }
+function dropPlanet(k) {
+  if (!resNow[k]) return;
+  swapTex(planets[k].u.uMap, null); resNow[k] = 0;
+  planets[k].mesh.visible = false; if (planets[k].ring) planets[k].ring.visible = false;
+}
+let ringPending = null;
+function loadRing() {
+  if (ringPending) return ringPending;
+  ringPending = tex('tex/planets/saturn_ring.png', true, false).then(r => {
+    if (!r) { ringPending = null; return; }
+    r.wrapS = THREE.ClampToEdgeWrapping; r.anisotropy = 1; r.needsUpdate = true; ringTex.value = r;
+    if (planets.saturn.mesh.visible) planets.saturn.ring.visible = true;
+  });
+  return ringPending;
+}
+// Phones: the Earth/Moon maps are freed while another body is in view (they are only dots then),
+// and restored from the offline cache when you come back — no extra download.
+const EARTHISH = ['earth', 'moon', 'earthmoon'];
+let earthLoaded = true, earthRestoring = null;
+function dropEarth() {
+  if (!earthLoaded) return;
+  for (const u of [earthUniforms.uDay, earthUniforms.uNight, earthUniforms.uClouds, earthUniforms.uNormal, earthUniforms.uSpec, moonUniforms.uMap]) swapTex(u, null);
+  earth.visible = atmo.visible = moon.visible = false;
+  earthLoaded = false; resNow.earth = resNow.moon = 0;
+}
+function restoreEarth() {
+  if (earthLoaded || earthRestoring) return earthRestoring;
+  const hi = bgDone ? '4k' : '2k';
+  earthRestoring = Promise.all([
+    tex(`tex/earth_day_${hi}.jpg`, true, false), tex(`tex/earth_night_${hi}.jpg`, true, false), tex(`tex/earth_clouds_${hi}.jpg`, false, false),
+    tex('tex/earth_normal_2k.jpg', false, false), tex('tex/earth_spec_2k.jpg', false, false), tex(`tex/moon_${hi}.jpg`, true, false),
+  ]).then(([d, n, c, no, sp, m]) => {
+    earthRestoring = null;
+    if (!EARTHISH.includes(focus)) { for (const t of [d, n, c, no, sp, m]) t && t.dispose(); return; }
+    swapTex(earthUniforms.uDay, d); swapTex(earthUniforms.uNight, n); swapTex(earthUniforms.uClouds, c);
+    swapTex(earthUniforms.uNormal, no); swapTex(earthUniforms.uSpec, sp); swapTex(moonUniforms.uMap, m);
+    earth.visible = atmo.visible = moon.visible = true;
+    earthLoaded = true; resNow.earth = resNow.moon = hi === '4k' ? 4 : 2;
+    if (EARTHISH.includes(focus)) $('res').textContent = resNow.earth + 'K';
+  });
+  return earthRestoring;
+}
+let bgDone = false;
 function ensureHiRes(k) {
   const key = k === 'earthmoon' ? 'earth' : k;
+  if (isMobile) {
+    for (const o of PLANETS) if (o !== key) dropPlanet(o);
+    if (EARTHISH.includes(k)) restoreEarth(); else if (bgDone) dropEarth();
+  }
   if (PL[key]) {
+    if (key === 'saturn') loadRing();
     const want = PL[key].hi.filter(s => s <= (isMobile ? 4 : 8));
-    for (const s of want) loadPlanet(key, s);
+    loadPlanet(key, 2).then(() => { for (const s of want) if (focus === key) loadPlanet(key, s); });
   }
   $('res').textContent = (resNow[key] || 2) + 'K';
 }
@@ -827,22 +884,23 @@ async function boot() {
   loadingEl.dataset.done = 'true';
   sheetTo('peek', false);
   requestAnimationFrame(loop);
-  // then: every planet at 2K, the ring, and the Earth/Moon 4K set
+  // then: the Earth/Moon 4K set; on desktop also every planet at 2K and the ring
   setTimeout(async () => {
-    const r = await tex('tex/planets/saturn_ring.png', true, false);
-    if (r) { r.wrapS = THREE.ClampToEdgeWrapping; r.anisotropy = 1; r.needsUpdate = true; ringTex.value = r; if (planets.saturn.mesh.visible) planets.saturn.ring.visible = true; }
-    await Promise.all(PLANETS.map(k => loadPlanet(k, 2)));
-    if (PL[focus]) ensureHiRes(focus);
+    if (!isMobile) { loadRing(); await Promise.all(PLANETS.map(k => loadPlanet(k, 2))); }
+    ensureHiRes(focus);
     const [d4, n4, c4, m4] = await Promise.all([
       tex('tex/earth_day_4k.jpg', true, false), tex('tex/earth_night_4k.jpg', true, false), tex('tex/earth_clouds_4k.jpg', false, false), tex('tex/moon_4k.jpg', true, false),
     ]);
-    if (d4) { earthUniforms.uDay.value = d4; resNow.earth = 4; }
-    if (n4) earthUniforms.uNight.value = n4;
-    if (c4) earthUniforms.uClouds.value = c4;
-    if (m4) { moonUniforms.uMap.value = m4; resNow.moon = 4; }
+    bgDone = true;
+    if (isMobile && !EARTHISH.includes(focus)) { for (const t of [d4, n4, c4, m4]) t && t.dispose(); dropEarth(); ensureHiRes(focus); return; }
+    if (!earthLoaded) { for (const t of [d4, n4, c4, m4]) t && t.dispose(); return; }
+    if (d4) { swapTex(earthUniforms.uDay, d4); resNow.earth = 4; }
+    if (n4) swapTex(earthUniforms.uNight, n4);
+    if (c4) swapTex(earthUniforms.uClouds, c4);
+    if (m4) { swapTex(moonUniforms.uMap, m4); resNow.moon = 4; }
     if (!isMobile) {
       const d8 = await tex('tex/earth_day_8k.jpg', true, false);
-      if (d8) { earthUniforms.uDay.value = d8; resNow.earth = 8; }
+      if (d8) { swapTex(earthUniforms.uDay, d8); resNow.earth = 8; }
     }
     ensureHiRes(focus);
   }, 600);
@@ -898,7 +956,7 @@ addEventListener('resize', () => {
 });
 
 setRate(0);
-window.__sol = { get st() { return st; }, W, camera, get focus() { return focus; }, labels, flyTo };
+window.__sol = { renderer, get st() { return st; }, W, camera, get focus() { return focus; }, labels, flyTo };
 boot().catch(e => showError('読み込みに失敗しました / Failed to start: ' + (e && e.message || e)));
 
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => { });
