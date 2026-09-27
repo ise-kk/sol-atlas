@@ -1,6 +1,6 @@
 // Offline support. App files: network first (updates show up right away), cached copy when offline.
 // Textures and the star catalogue: cache first (large and never change), kept in their own cache.
-const CACHE = 'sol-v1';
+const CACHE = 'sol-v2';
 const TEX = 'sol-tex-v1';
 const SHELL = ['./', 'index.html', 'app.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
