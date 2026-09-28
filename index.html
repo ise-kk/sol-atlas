@@ -128,6 +128,10 @@ dl{margin:0}
 .label i{display:block;width:1px;height:10px;background:var(--line-hi);margin:0 auto 3px}
 .label.dot i{width:5px;height:5px;border-radius:50%;background:#d9e1ef;box-shadow:0 0 6px rgba(217,225,239,.7);margin-bottom:5px}
 .label.dim{opacity:.62;font-size:10.5px}
+.label.notext span{display:none}
+.label.above{flex-direction:column-reverse}
+.label.dot.above i{margin:5px auto 0}
+.label.notext:not(.dot){display:none}
 .label:hover{color:var(--text);opacity:1}
 .hint{position:fixed;left:22px;top:calc(env(safe-area-inset-top,0px) + 70px);margin:0;font-size:11px;color:var(--faint);z-index:4;max-width:260px}
 
@@ -217,7 +221,6 @@ dl{margin:0}
     <button type="button" data-rate="1" data-t="rate1">1分/秒</button>
     <button type="button" data-rate="2" data-t="rate2">1時間/秒</button>
     <button type="button" data-rate="3" data-t="rate3">1日/秒</button>
-    <button type="button" data-rate="4" data-t="rate4">1週/秒</button>
     <span class="sep"></span>
     <input type="datetime-local" id="when" aria-label="Date and time">
     <span id="rate-label"></span>
