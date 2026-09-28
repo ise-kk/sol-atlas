@@ -261,7 +261,7 @@ function buildMoonOrbit() {
 }
 
 // ---------- time ----------
-const RATES = [1, 60, 3600, 86400, 604800];
+const RATES = [1, 60, 3600, 86400];
 const sim = { t: Date.now(), rate: 1, dir: 1, paused: false, live: true };
 let st = state(new Date(sim.t));
 
@@ -454,17 +454,25 @@ function updateLabels() {
       if (hit && hit.distanceTo(camera.position) < len) vis = false;
     }
     const x = (s.x + 1) / 2 * w, y = (1 - s.y) / 2 * h;
+    // the point for the body always shows; only its name gives way when names would overlap
+    let named = vis, above_ = false;
     if (vis) {
-      const box = [x - 44, y - 6, x + 44, y + Math.max(px, 3) + 28];
-      if (placed.some(b => box[0] < b[2] && box[2] > b[0] && box[1] < b[3] && box[3] > b[1])) vis = false;
-      else placed.push(box);
+      const half = 10 + String(T(k)).length * (lang === 'ja' ? 7 : 4.6);
+      const free = (bx) => !placed.some(b => bx[0] < b[2] && bx[2] > b[0] && bx[1] < b[3] && bx[3] > b[1]);
+      const below = [x - half, y - 6, x + half, y + Math.max(px, 3) + 28];
+      const above = [x - half, y - Math.max(px, 3) - 30, x + half, y + 6];
+      if (free(below)) { placed.push(below); above_ = false; }
+      else if (px < 3 && free(above)) { placed.push(above); above_ = true; }
+      else named = false;
     }
+    el.classList.toggle('above', !!(named && above_));
     el.hidden = !vis;
+    el.classList.toggle('notext', !named);
     if (vis) {
       el.lastChild.textContent = T(k);
       el.classList.toggle('dot', px < 3);
       el.classList.toggle('dim', !overview && focus !== 'earthmoon');
-      el.style.transform = `translate(${x}px, ${y + (px < 3 ? -4 : Math.max(px, 4) + 6)}px) translateX(-50%)`;
+      el.style.transform = above_ && named ? `translate(${x}px, ${y + 5}px) translateX(-50%) translateY(-100%)` : `translate(${x}px, ${y + (px < 3 ? -4 : Math.max(px, 4) + 6)}px) translateX(-50%)`;
     }
   }
 }
@@ -475,7 +483,7 @@ let lang = 'ja';
 try { lang = localStorage.getItem('sol.lang') || 'ja'; } catch (e) { }
 document.documentElement.lang = lang;
 
-const RAIL = [['cap', 'groupAll'], ['system', '0'], ['inner', '9'], ['cap', 'groupBodies'], ['sun', 'S'], ['mercury', '1'], ['venus', '2'], ['earth', '3'], ['moon', 'M'], ['mars', '4'], ['jupiter', '5'], ['saturn', '6'], ['uranus', '7'], ['neptune', '8'], ['earthmoon', 'E']];
+const RAIL = [['cap', 'groupAll'], ['system', '0'], ['inner', '9'], ['cap', 'groupBodies'], ['sun', 'S'], ['mercury', '1'], ['venus', '2'], ['earth', '3'], ['moon', 'M'], ['mars', '4'], ['jupiter', '5'], ['saturn', '6'], ['uranus', '7'], ['neptune', '8']];
 const rail = $('rail');
 for (const [k, key] of RAIL) {
   if (k === 'cap') { const c = document.createElement('span'); c.className = 'cap'; c.dataset.t = key; rail.appendChild(c); continue; }
@@ -879,7 +887,8 @@ async function boot() {
   const toSun = v3(st.sun).normalize();
   camera.position.copy(toSun.clone().multiplyScalar(-400).add(new THREE.Vector3(0, 260, 0)).applyAxisAngle(new THREE.Vector3(0, 1, 0), 1.2));
   W.target.set(0, 0, 0);
-  flyTo('earth', { dur: 5200 });
+  const want = decodeURIComponent(location.hash.slice(1)).toLowerCase();
+  flyTo(want in HOME ? want : 'earth', { dur: 5200 });
   renderInfo(true);
   loadingEl.dataset.done = 'true';
   sheetTo('peek', false);
@@ -955,6 +964,7 @@ addEventListener('resize', () => {
   starMat.uniforms.uScale.value = renderer.getPixelRatio();
 });
 
+addEventListener('hashchange', () => { const k = decodeURIComponent(location.hash.slice(1)).toLowerCase(); if (k in HOME && k !== focus) flyTo(k); });
 setRate(0);
 window.__sol = { renderer, get st() { return st; }, W, camera, get focus() { return focus; }, labels, flyTo };
 boot().catch(e => showError('読み込みに失敗しました / Failed to start: ' + (e && e.message || e)));
